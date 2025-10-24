@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python/
+env/
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Poetry
+.poetry/
+.cache/pypoetry/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+!.env.example # Keep the example file
+
+# Docker
+# Dockerfile is usually committed
+# docker-compose.yml is usually committed
+.dockerignore
+
+# IDEs
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Uploaded files (if any local storage is used)
+/uploads/
