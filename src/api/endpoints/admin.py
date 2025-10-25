@@ -3,7 +3,7 @@ from typing import Optional, List
 import time
 
 from src.models.admin import ActivationCodeCreateRequest, ActivationCodeCreateResponse, AdminDevicesListResponse, AdminDeviceResponse, DeviceDeactivateRequest, DeviceDeactivateResponse
-from src.core.security import verify_admin_token
+from src.core.security import get_current_admin_user
 from src.services.aws_service import AWSService, aws_service
 
 router = APIRouter()
@@ -11,7 +11,7 @@ router = APIRouter()
 @router.post("/admin/activation-codes", response_model=ActivationCodeCreateResponse, status_code=status.HTTP_201_CREATED)
 async def create_activation_code(
     request: ActivationCodeCreateRequest,
-    is_admin: bool = Depends(verify_admin_token),
+    current_user: str = Depends(get_current_admin_user),
     aws: AWSService = Depends(lambda: aws_service)
 ):
     """
@@ -43,7 +43,7 @@ async def create_activation_code(
 @router.get("/admin/devices", response_model=AdminDevicesListResponse)
 async def list_devices(
     x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
-    is_admin: bool = Depends(verify_admin_token),
+    current_user: str = Depends(get_current_admin_user),
     aws: AWSService = Depends(lambda: aws_service)
 ):
     """
@@ -78,7 +78,7 @@ async def deactivate_device(
     device_id: str,
     request: DeviceDeactivateRequest,
     x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
-    is_admin: bool = Depends(verify_admin_token),
+    current_user: str = Depends(get_current_admin_user),
     aws: AWSService = Depends(lambda: aws_service)
 ):
     """

@@ -11,10 +11,13 @@ class Settings(BaseSettings):
     DYNAMODB_ACTIVATION_CODES_TABLE: str = "activation_codes"
     DYNAMODB_ATTENDANCE_TABLE: str = "attendances"
     DYNAMODB_AUDIT_TABLE: str = "audits"
+    DYNAMODB_ADMIN_USERS_TABLE: str = "admin_users"
 
     ADMIN_TOKEN: str = "default_admin_token"
 
     SECRET_KEY: str = "a_secure_default_secret_key"
+    CORS_ORIGINS_DEV: str = "http://localhost:3000"
+    CORS_ORIGINS_PROD: str = "http://localhost:8080"
 
     class Config:
         env_file = ".env"

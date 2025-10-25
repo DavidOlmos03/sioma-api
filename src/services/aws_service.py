@@ -3,6 +3,8 @@ from botocore.exceptions import ClientError
 from fastapi import UploadFile
 from typing import List
 import logging
+import time
+from src.core.security import get_password_hash
 
 from src.core.config import settings
 
@@ -29,6 +31,7 @@ class AWSService:
         self.activation_codes_table = self.dynamodb.Table(settings.DYNAMODB_ACTIVATION_CODES_TABLE)
         self.attendance_table = self.dynamodb.Table(settings.DYNAMODB_ATTENDANCE_TABLE)
         self.audit_table = self.dynamodb.Table(settings.DYNAMODB_AUDIT_TABLE)
+        self.admin_users_table = self.dynamodb.Table(settings.DYNAMODB_ADMIN_USERS_TABLE)
 
     def get_activation_code(self, code: str):
         try:
@@ -293,5 +296,86 @@ class AWSService:
                 raise ValueError(f"Device {device_id} not found or does not belong to tenant {tenant_id}")
             logger.error(f"Failed to deactivate device {device_id}: {e}")
             raise
+
+    def create_tables(self):
+        try:
+            self.dynamodb.create_table(
+                TableName=settings.DYNAMODB_ADMIN_USERS_TABLE,
+                KeySchema=[
+                    {'AttributeName': 'email', 'KeyType': 'HASH'}
+                ],
+                AttributeDefinitions=[
+                    {'AttributeName': 'email', 'AttributeType': 'S'}
+                ],
+                ProvisionedThroughput={'ReadCapacityUnits': 1, 'WriteCapacityUnits': 1}
+            )
+            logger.info(f"Table {settings.DYNAMODB_ADMIN_USERS_TABLE} created successfully.")
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'ResourceInUseException':
+                logger.info(f"Table {settings.DYNAMODB_ADMIN_USERS_TABLE} already exists.")
+            else:
+                logger.error(f"Failed to create table {settings.DYNAMODB_ADMIN_USERS_TABLE}: {e}")
+                raise
+
+    def get_admin_user_by_email(self, email: str):
+        try:
+            response = self.admin_users_table.get_item(Key={'email': email})
+            return response.get("Item")
+        except ClientError as e:
+            logger.error(f"Failed to get admin user {email}: {e}")
+            raise
+
+    def get_all_admin_users(self):
+        try:
+            response = self.admin_users_table.scan()
+            return response.get("Items", [])
+        except ClientError as e:
+            logger.error(f"Failed to scan admin users table: {e}")
+            raise
+
+    def update_admin_user(self, email: str, user_update: dict):
+        update_expression = "SET " + ", ".join(f"#{k}=:{k}" for k in user_update)
+        expression_attribute_names = {f"#{k}": k for k in user_update}
+        expression_attribute_values = {f":{k}": v for k, v in user_update.items()}
+
+        try:
+            response = self.admin_users_table.update_item(
+                Key={'email': email},
+                UpdateExpression=update_expression,
+                ExpressionAttributeNames=expression_attribute_names,
+                ExpressionAttributeValues=expression_attribute_values,
+                ReturnValues="ALL_NEW"
+            )
+            return response.get("Attributes")
+        except ClientError as e:
+            logger.error(f"Failed to update admin user {email}: {e}")
+            raise
+
+    def delete_admin_user(self, email: str):
+        try:
+            self.admin_users_table.delete_item(Key={'email': email})
+        except ClientError as e:
+            logger.error(f"Failed to delete admin user {email}: {e}")
+            raise
+
+    def create_initial_admin_user_if_not_exists(self):
+        email = "admin@sioma.com"
+        user = self.get_admin_user_by_email(email)
+        if not user:
+            password = "Password_2025"
+            hashed_password = get_password_hash(password)
+
+            user_data = {
+                "email": email,
+                "hashed_password": hashed_password,
+                "is_active": True,
+                "created_at": int(time.time() * 1000),
+            }
+
+            try:
+                self.admin_users_table.put_item(Item=user_data)
+                logger.info(f"Initial admin user {email} created successfully.")
+            except Exception as e:
+                logger.error(f"Failed to create initial admin user: {e}")
 
 aws_service = AWSService()

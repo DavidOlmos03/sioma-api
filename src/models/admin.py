@@ -1,5 +1,18 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
 from typing import Optional, List
+
+class AdminUser(BaseModel):
+    email: EmailStr
+    hashed_password: str
+    is_active: bool = True
+    created_at: int
+
+class AdminUserCreate(BaseModel):
+    email: EmailStr
+    password: str
+
+class AdminUserUpdate(BaseModel):
+    is_active: bool
 
 class ActivationCodeCreateRequest(BaseModel):
     code: str = Field(..., example="ACME-ABC123")
