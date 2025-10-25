@@ -59,6 +59,53 @@ To run the unit tests, execute the following command. This will start a temporar
 docker-compose run --rm api poetry run pytest
 ```
 
+## API Endpoints
+
+Below is a summary of the available API endpoints.
+
+### Health Check
+
+- `GET /health`: Checks the operational status of the API.
+
+### Device (Client-Facing)
+
+- `POST /api/devices/register`: Registers a new device using a one-time activation code.
+- `GET /api/devices/status`: Retrieves the status of the currently authenticated device.
+
+### Attendance (Client-Facing)
+
+- `POST /api/attendance/sync`: Uploads a batch of attendance records from a device.
+- `GET /api/attendance/updates`: Downloads attendance records created or modified since a given timestamp.
+
+### Audit (Client-Facing)
+
+- `POST /api/audit/sync`: Uploads a batch of audit log records from a device.
+
+### Admin
+
+- `POST /api/admin/activation-codes`: (Admin) Creates a new activation code for device registration.
+- `GET /api/admin/devices`: (Admin) Lists all registered devices for a specific tenant.
+- `PUT /api/admin/devices/{device_id}/deactivate`: (Admin) Deactivates a device, preventing it from syncing.
+
+### Legacy Endpoints
+
+These endpoints appear to be part of a separate or legacy feature set.
+
+- **Workers**
+  - `POST /api/workers`: Register a new worker with face images.
+  - `GET /api/workers`: Get a list of all workers.
+  - `GET /api/workers/{worker_id}`: Get a single worker by ID.
+  - `PUT /api/workers/{worker_id}`: Update a worker's information.
+  - `DELETE /api/workers/{worker_id}`: Delete a worker.
+
+- **Timestamps**
+  - `POST /api/timestamps`: Record a new timestamp event for a worker.
+  - `GET /api/timestamps`: Get a list of all timestamps, optionally filtered by `worker_id`.
+  - `GET /api/timestamps/{timestamp_id}`: Get a single timestamp by ID.
+  - `PUT /api/timestamps/{timestamp_id}`: Update a timestamp.
+  - `DELETE /api/timestamps/{timestamp_id}`: Delete a timestamp.
+
+
 ## Project Structure
 
 -   `src/`: Main application source code.
