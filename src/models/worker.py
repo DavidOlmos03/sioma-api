@@ -26,3 +26,11 @@ class TimeLogResponse(BaseModel):
     worker_id: str
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     event_type: str
+
+class WorkerUpdate(BaseModel):
+    first_name: str | None = None
+    last_name: str | None = None
+    email: EmailStr | None = None
+
+class TimeLogUpdate(BaseModel):
+    event_type: str | None = None # "entry" or "exit"

@@ -3,7 +3,7 @@ from typing import List
 import json
 from datetime import datetime
 
-from src.models.worker import WorkerCreate, WorkerResponse, WorkerPersonalData
+from src.models.worker import WorkerCreate, WorkerResponse, WorkerPersonalData, WorkerUpdate
 from src.services.aws_service import AWSService, aws_service
 
 router = APIRouter()
@@ -59,3 +59,61 @@ async def get_all_workers(aws: AWSService = Depends(lambda: aws_service)):
         return workers
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to retrieve workers: {str(e)}")
+
+@router.get("/workers/{worker_id}", response_model=WorkerResponse)
+async def get_worker(
+    worker_id: str,
+    aws: AWSService = Depends(lambda: aws_service)
+):
+    """
+    Retrieves a single worker by their ID.
+    """
+    try:
+        worker = aws.get_worker_by_id(worker_id)
+        if not worker:
+            raise HTTPException(status_code=404, detail="Worker not found")
+        return worker
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve worker: {str(e)}")
+
+@router.put("/workers/{worker_id}", response_model=WorkerResponse)
+async def update_worker(
+    worker_id: str,
+    worker_update: WorkerUpdate,
+    aws: AWSService = Depends(lambda: aws_service)
+):
+    """
+    Updates a worker's information.
+    """
+    update_data = worker_update.dict(exclude_unset=True)
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No update data provided")
+
+    try:
+        updated_worker = aws.update_worker(worker_id, update_data)
+        if not updated_worker:
+            raise HTTPException(status_code=404, detail="Worker not found")
+        return updated_worker
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update worker: {str(e)}")
+
+@router.delete("/workers/{worker_id}", status_code=204)
+async def delete_worker(
+    worker_id: str,
+    aws: AWSService = Depends(lambda: aws_service)
+):
+    """
+    Deletes a worker.
+    """
+    try:
+        # First, check if the worker exists
+        worker = aws.get_worker_by_id(worker_id)
+        if not worker:
+            raise HTTPException(status_code=404, detail="Worker not found")
+        
+        aws.delete_worker(worker_id)
+        return
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete worker: {str(e)}")
