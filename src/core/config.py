@@ -6,7 +6,11 @@ class Settings(BaseSettings):
     AWS_REGION: str
     S3_BUCKET_NAME: str
     DYNAMODB_WORKERS_TABLE: str
-    DYNAMODB_TIMESTAMPS_TABLE: str
+    DYNAMODB_TIMESTAMPS_TABLE: str = "timestamps"
+    DYNAMODB_DEVICES_TABLE: str = "devices"
+    DYNAMODB_ACTIVATION_CODES_TABLE: str = "activation_codes"
+
+    SECRET_KEY: str = "a_secure_default_secret_key"
 
     class Config:
         env_file = ".env"

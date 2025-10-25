@@ -25,6 +25,31 @@ class AWSService:
         )
         self.workers_table = self.dynamodb.Table(settings.DYNAMODB_WORKERS_TABLE)
         self.timestamps_table = self.dynamodb.Table(settings.DYNAMODB_TIMESTAMPS_TABLE)
+        self.devices_table = self.dynamodb.Table(settings.DYNAMODB_DEVICES_TABLE)
+        self.activation_codes_table = self.dynamodb.Table(settings.DYNAMODB_ACTIVATION_CODES_TABLE)
+
+    def get_activation_code(self, code: str):
+        try:
+            response = self.activation_codes_table.get_item(Key={'code': code})
+            return response.get("Item")
+        except ClientError as e:
+            logger.error(f"Failed to get activation code {code}: {e}")
+            raise
+
+    def save_device_registration(self, device_data: dict):
+        try:
+            self.devices_table.put_item(Item=device_data)
+        except ClientError as e:
+            logger.error(f"Failed to save device data to DynamoDB: {e}")
+            raise
+
+    def get_device_by_id(self, device_id: str):
+        try:
+            response = self.devices_table.get_item(Key={'device_id': device_id})
+            return response.get("Item")
+        except ClientError as e:
+            logger.error(f"Failed to get device {device_id}: {e}")
+            raise
 
     def upload_images_to_s3(self, worker_id: str, images: List[UploadFile]) -> List[str]:
         image_urls = []
