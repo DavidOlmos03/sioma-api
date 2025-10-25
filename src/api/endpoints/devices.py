@@ -1,7 +1,7 @@
 from fastapi import APIRouter, status, Depends, HTTPException
-from src.models.device import DeviceRegisterRequest, DeviceRegisterResponse, DeviceRegisterResponseData
+from src.models.device import DeviceRegisterRequest, DeviceRegisterResponse, DeviceRegisterResponseData, DeviceStatusResponse
 from src.services.aws_service import AWSService, aws_service
-from src.core.security import create_device_token
+from src.core.security import create_device_token, get_current_device_payload
 import time
 
 router = APIRouter()
@@ -54,7 +54,8 @@ async def register_device(
     })
     aws.save_device_registration(device_registration_data)
 
-    # TODO: Mark the activation code as "used" in the ActivationCodes table
+    # Mark the activation code as "used" in the ActivationCodes table
+    aws.mark_activation_code_as_used(device_data.activation_code, device_data.device_id)
 
     # 5. Prepare and return response
     response_data = DeviceRegisterResponseData(
@@ -67,3 +68,32 @@ async def register_device(
     )
 
     return DeviceRegisterResponse(success=True, data=response_data)
+
+
+@router.get("/devices/status", response_model=DeviceStatusResponse)
+async def get_device_status(
+    payload: dict = Depends(get_current_device_payload),
+    aws: AWSService = Depends(lambda: aws_service)
+):
+    """
+    Retrieves the status of the currently authenticated device.
+    """
+    device_id = payload.get("device_id")
+    
+    device = aws.get_device_by_id(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found.")
+
+    if not device.get('is_active', False):
+        raise HTTPException(status_code=403, detail="Device is deactivated.")
+
+    # TODO: Implement logic to calculate real pending_records count
+    pending_records_count = 0
+
+    return DeviceStatusResponse(
+        device_id=device.get('device_id'),
+        device_name=device.get('device_name'),
+        is_active=device.get('is_active'),
+        last_sync_at=device.get('last_sync_at'),
+        pending_records=pending_records_count
+    )

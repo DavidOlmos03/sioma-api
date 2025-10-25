@@ -22,3 +22,10 @@ class DeviceRegisterResponseData(BaseModel):
 class DeviceRegisterResponse(BaseModel):
     success: bool = Field(True, example=True)
     data: DeviceRegisterResponseData
+
+class DeviceStatusResponse(BaseModel):
+    device_id: str = Field(..., example="550e8400-e29b-41d4-a716-446655440000")
+    device_name: str = Field(..., example="Tablet Entrada Principal")
+    is_active: bool = Field(..., example=True)
+    last_sync_at: Optional[int] = Field(None, example=1706140800000)
+    pending_records: int = Field(..., example=5)

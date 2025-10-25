@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     DYNAMODB_TIMESTAMPS_TABLE: str = "timestamps"
     DYNAMODB_DEVICES_TABLE: str = "devices"
     DYNAMODB_ACTIVATION_CODES_TABLE: str = "activation_codes"
+    DYNAMODB_ATTENDANCE_TABLE: str = "attendances"
+    DYNAMODB_AUDIT_TABLE: str = "audits"
 
     SECRET_KEY: str = "a_secure_default_secret_key"
 

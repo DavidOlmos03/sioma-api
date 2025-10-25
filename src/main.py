@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from src.api.endpoints import workers, timestamps, devices
+from src.api.endpoints import workers, timestamps, devices, attendance, audit
 
 app = FastAPI(
     title="Sioma Dashboard API",
@@ -10,6 +10,8 @@ app = FastAPI(
 app.include_router(workers.router, prefix="/api", tags=["Workers"])
 app.include_router(timestamps.router, prefix="/api", tags=["Timestamps"])
 app.include_router(devices.router, prefix="/api", tags=["Devices"])
+app.include_router(attendance.router, prefix="/api", tags=["Attendance"])
+app.include_router(audit.router, prefix="/api", tags=["Audit"])
 
 @app.get("/health", tags=["Health"])
 def health_check():

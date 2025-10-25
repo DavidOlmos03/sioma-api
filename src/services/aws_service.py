@@ -27,6 +27,8 @@ class AWSService:
         self.timestamps_table = self.dynamodb.Table(settings.DYNAMODB_TIMESTAMPS_TABLE)
         self.devices_table = self.dynamodb.Table(settings.DYNAMODB_DEVICES_TABLE)
         self.activation_codes_table = self.dynamodb.Table(settings.DYNAMODB_ACTIVATION_CODES_TABLE)
+        self.attendance_table = self.dynamodb.Table(settings.DYNAMODB_ATTENDANCE_TABLE)
+        self.audit_table = self.dynamodb.Table(settings.DYNAMODB_AUDIT_TABLE)
 
     def get_activation_code(self, code: str):
         try:
@@ -49,6 +51,77 @@ class AWSService:
             return response.get("Item")
         except ClientError as e:
             logger.error(f"Failed to get device {device_id}: {e}")
+            raise
+
+    def mark_activation_code_as_used(self, code: str, device_id: str):
+        try:
+            self.activation_codes_table.update_item(
+                Key={'code': code},
+                UpdateExpression="SET #s = :s, #ua = :ua, #ubd = :ubd",
+                ExpressionAttributeNames={
+                    '#s': 'status',
+                    '#ua': 'used_at',
+                    '#ubd': 'used_by_device_id'
+                },
+                ExpressionAttributeValues={
+                    ':s': 'used',
+                    ':ua': int(time.time() * 1000),
+                    ':ubd': device_id
+                }
+            )
+        except ClientError as e:
+            logger.error(f"Failed to mark activation code {code} as used: {e}")
+            raise
+
+    def find_duplicate_attendance(self, tenant_id: str, employee_id: str, timestamp: int):
+        partition_key = f"{tenant_id}#{employee_id}"
+        min_ts = timestamp - 30000 # 30 seconds
+        max_ts = timestamp + 30000 # 30 seconds
+        try:
+            response = self.attendance_table.query(
+                KeyConditionExpression=
+                    boto3.dynamodb.conditions.Key('tenant_id#employee_id').eq(partition_key) &
+                    boto3.dynamodb.conditions.Key('timestamp').between(min_ts, max_ts)
+            )
+            return response.get('Items')
+        except ClientError as e:
+            logger.error(f"DynamoDB query failed: {e}")
+            raise
+
+    def save_attendance_record(self, record_data: dict):
+        try:
+            self.attendance_table.put_item(Item=record_data)
+        except ClientError as e:
+            logger.error(f"Failed to save attendance record to DynamoDB: {e}")
+            raise
+
+    def get_attendance_updates(self, tenant_id: str, since_timestamp: int):
+        try:
+            # This query finds newly created records.
+            # Finding deleted records efficiently would require a different GSI strategy,
+            # e.g., on a 'last_updated_at' field.
+            response = self.attendance_table.query(
+                IndexName='tenant_id-timestamp-index', # As per GSI1 in requirements
+                KeyConditionExpression=
+                    boto3.dynamodb.conditions.Key('tenant_id').eq(tenant_id) &
+                    boto3.dynamodb.conditions.Key('timestamp').gt(since_timestamp)
+            )
+            return response.get('Items', [])
+        except ClientError as e:
+            logger.error(f"DynamoDB query for updates failed: {e}")
+            # Handle case where index doesn't exist, which is a common setup error.
+            if e.response['Error']['Code'] == 'ValidationException' and 'does not have the specified index' in e.response['Error']['Message']:
+                 logger.error("Query failed: The table is missing the 'tenant_id-timestamp-index'. Please create it.")
+                 raise ValueError("Required DynamoDB index 'tenant_id-timestamp-index' not found.")
+            raise
+
+    def save_audit_records(self, records: List[dict]):
+        try:
+            with self.audit_table.batch_writer() as batch:
+                for record in records:
+                    batch.put_item(Item=record)
+        except ClientError as e:
+            logger.error(f"Failed to save audit records to DynamoDB: {e}")
             raise
 
     def upload_images_to_s3(self, worker_id: str, images: List[UploadFile]) -> List[str]:
