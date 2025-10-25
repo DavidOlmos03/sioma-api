@@ -124,6 +124,27 @@ class AWSService:
             logger.error(f"Failed to save audit records to DynamoDB: {e}")
             raise
 
+    def save_activation_code(self, code_data: dict):
+        try:
+            self.activation_codes_table.put_item(Item=code_data)
+        except ClientError as e:
+            logger.error(f"Failed to save activation code to DynamoDB: {e}")
+            raise
+
+    def get_devices_by_tenant(self, tenant_id: str):
+        try:
+            response = self.devices_table.query(
+                IndexName='tenant_id-registered_at-index', # As per GSI1 in requirements
+                KeyConditionExpression=boto3.dynamodb.conditions.Key('tenant_id').eq(tenant_id)
+            )
+            return response.get('Items', [])
+        except ClientError as e:
+            logger.error(f"DynamoDB query for devices by tenant failed: {e}")
+            if e.response['Error']['Code'] == 'ValidationException' and 'does not have the specified index' in e.response['Error']['Message']:
+                 logger.error("Query failed: The table is missing the 'tenant_id-registered_at-index'. Please create it.")
+                 raise ValueError("Required DynamoDB index 'tenant_id-registered_at-index' not found.")
+            raise
+
     def upload_images_to_s3(self, worker_id: str, images: List[UploadFile]) -> List[str]:
         image_urls = []
         for i, image in enumerate(images):
@@ -252,6 +273,25 @@ class AWSService:
             return response.get("Attributes")
         except ClientError as e:
             logger.error(f"Failed to update timestamp {timestamp_id}: {e}")
+    def deactivate_device(self, device_id: str, reason: str, tenant_id: str):
+        try:
+            response = self.devices_table.update_item(
+                Key={'device_id': device_id},
+                ConditionExpression=boto3.dynamodb.conditions.Attr('tenant_id').eq(tenant_id),
+                UpdateExpression="SET is_active = :active, deactivated_at = :deactivated_at, deactivation_reason = :reason",
+                ExpressionAttributeValues={
+                    ':active': False,
+                    ':deactivated_at': int(time.time() * 1000),
+                    ':reason': reason
+                },
+                ReturnValues="ALL_NEW"
+            )
+            return response.get("Attributes")
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
+                logger.error(f"Device {device_id} not found or does not belong to tenant {tenant_id}")
+                raise ValueError(f"Device {device_id} not found or does not belong to tenant {tenant_id}")
+            logger.error(f"Failed to deactivate device {device_id}: {e}")
             raise
 
 aws_service = AWSService()

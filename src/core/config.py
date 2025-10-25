@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     DYNAMODB_ATTENDANCE_TABLE: str = "attendances"
     DYNAMODB_AUDIT_TABLE: str = "audits"
 
+    ADMIN_TOKEN: str = "default_admin_token"
+
     SECRET_KEY: str = "a_secure_default_secret_key"
 
     class Config:
