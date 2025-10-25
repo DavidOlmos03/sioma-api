@@ -298,24 +298,120 @@ class AWSService:
             raise
 
     def create_tables(self):
-        try:
-            self.dynamodb.create_table(
-                TableName=settings.DYNAMODB_ADMIN_USERS_TABLE,
-                KeySchema=[
-                    {'AttributeName': 'email', 'KeyType': 'HASH'}
+        tables = {
+            settings.DYNAMODB_ADMIN_USERS_TABLE: {
+                'KeySchema': [{'AttributeName': 'email', 'KeyType': 'HASH'}],
+                'AttributeDefinitions': [{'AttributeName': 'email', 'AttributeType': 'S'}]
+            },
+            settings.DYNAMODB_WORKERS_TABLE: {
+                'KeySchema': [{'AttributeName': 'id', 'KeyType': 'HASH'}],
+                'AttributeDefinitions': [{'AttributeName': 'id', 'AttributeType': 'S'}]
+            },
+            settings.DYNAMODB_TIMESTAMPS_TABLE: {
+                'KeySchema': [{'AttributeName': 'id', 'KeyType': 'HASH'}],
+                'AttributeDefinitions': [
+                    {'AttributeName': 'id', 'AttributeType': 'S'},
+                    {'AttributeName': 'worker_id', 'AttributeType': 'S'}
                 ],
-                AttributeDefinitions=[
-                    {'AttributeName': 'email', 'AttributeType': 'S'}
+                'GlobalSecondaryIndexes': [
+                    {
+                        'IndexName': 'worker_id-index',
+                        'KeySchema': [{'AttributeName': 'worker_id', 'KeyType': 'HASH'}],
+                        'Projection': {'ProjectionType': 'ALL'},
+                        'ProvisionedThroughput': {'ReadCapacityUnits': 1, 'WriteCapacityUnits': 1}
+                    }
+                ]
+            },
+            settings.DYNAMODB_DEVICES_TABLE: {
+                'KeySchema': [{'AttributeName': 'device_id', 'KeyType': 'HASH'}],
+                'AttributeDefinitions': [
+                    {'AttributeName': 'device_id', 'AttributeType': 'S'},
+                    {'AttributeName': 'tenant_id', 'AttributeType': 'S'},
+                    {'AttributeName': 'registered_at', 'AttributeType': 'N'}
                 ],
-                ProvisionedThroughput={'ReadCapacityUnits': 1, 'WriteCapacityUnits': 1}
-            )
-            logger.info(f"Table {settings.DYNAMODB_ADMIN_USERS_TABLE} created successfully.")
-        except ClientError as e:
-            if e.response['Error']['Code'] == 'ResourceInUseException':
-                logger.info(f"Table {settings.DYNAMODB_ADMIN_USERS_TABLE} already exists.")
-            else:
-                logger.error(f"Failed to create table {settings.DYNAMODB_ADMIN_USERS_TABLE}: {e}")
-                raise
+                'GlobalSecondaryIndexes': [
+                    {
+                        'IndexName': 'tenant_id-registered_at-index',
+                        'KeySchema': [
+                            {'AttributeName': 'tenant_id', 'KeyType': 'HASH'},
+                            {'AttributeName': 'registered_at', 'KeyType': 'RANGE'}
+                        ],
+                        'Projection': {'ProjectionType': 'ALL'},
+                        'ProvisionedThroughput': {'ReadCapacityUnits': 1, 'WriteCapacityUnits': 1}
+                    }
+                ]
+            },
+            settings.DYNAMODB_ACTIVATION_CODES_TABLE: {
+                'KeySchema': [{'AttributeName': 'code', 'KeyType': 'HASH'}],
+                'AttributeDefinitions': [{'AttributeName': 'code', 'AttributeType': 'S'}]
+            },
+            settings.DYNAMODB_ATTENDANCE_TABLE: {
+                'KeySchema': [{'AttributeName': 'tenant_id#employee_id', 'KeyType': 'HASH'}, {'AttributeName': 'timestamp', 'KeyType': 'RANGE'}],
+                'AttributeDefinitions': [
+                    {'AttributeName': 'tenant_id#employee_id', 'AttributeType': 'S'},
+                    {'AttributeName': 'timestamp', 'AttributeType': 'N'},
+                    {'AttributeName': 'tenant_id', 'AttributeType': 'S'}
+                ],
+                'GlobalSecondaryIndexes': [
+                    {
+                        'IndexName': 'tenant_id-timestamp-index',
+                        'KeySchema': [
+                            {'AttributeName': 'tenant_id', 'KeyType': 'HASH'},
+                            {'AttributeName': 'timestamp', 'KeyType': 'RANGE'}
+                        ],
+                        'Projection': {'ProjectionType': 'ALL'},
+                        'ProvisionedThroughput': {'ReadCapacityUnits': 1, 'WriteCapacityUnits': 1}
+                    }
+                ]
+            },
+            settings.DYNAMODB_AUDIT_TABLE: {
+                'KeySchema': [{'AttributeName': 'id', 'KeyType': 'HASH'}],
+                'AttributeDefinitions': [{'AttributeName': 'id', 'AttributeType': 'S'}]
+            }
+        }
+
+        for table_name, schema in tables.items():
+            try:
+                create_table_args = {
+                    'TableName': table_name,
+                    'KeySchema': schema['KeySchema'],
+                    'AttributeDefinitions': schema['AttributeDefinitions'],
+                    'ProvisionedThroughput': {'ReadCapacityUnits': 1, 'WriteCapacityUnits': 1}
+                }
+                if schema.get('GlobalSecondaryIndexes'):
+                    create_table_args['GlobalSecondaryIndexes'] = schema['GlobalSecondaryIndexes']
+
+                self.dynamodb.create_table(**create_table_args)
+                logger.info(f"Table {table_name} created successfully.")
+
+                waiter = self.dynamodb.meta.client.get_waiter('table_exists')
+                waiter.wait(TableName=table_name)
+                logger.info(f"Table {table_name} is active.")
+
+                if schema.get('GlobalSecondaryIndexes'):
+                    while True:
+                        response = self.dynamodb.meta.client.describe_table(TableName=table_name)
+                        all_indexes_active = True
+                        if 'GlobalSecondaryIndexes' not in response['Table']:
+                            all_indexes_active = False
+                        else:
+                            for gsi in response['Table']['GlobalSecondaryIndexes']:
+                                if gsi['IndexStatus'] != 'ACTIVE':
+                                    all_indexes_active = False
+                                    break
+                        if all_indexes_active:
+                            logger.info(f"All GSIs for table {table_name} are active.")
+                            break
+                        else:
+                            logger.info(f"Waiting for GSIs of table {table_name} to become active...")
+                            time.sleep(5)
+
+            except ClientError as e:
+                if e.response['Error']['Code'] == 'ResourceInUseException':
+                    logger.info(f"Table {table_name} already exists.")
+                else:
+                    logger.error(f"Failed to create table {table_name}: {e}")
+                    raise
 
     def get_admin_user_by_email(self, email: str):
         try:
