@@ -148,6 +148,88 @@ class AWSService:
             logger.error(f"Failed to save metrics record to DynamoDB: {e}")
             raise
 
+    def get_metrics(self, tenant_id: str, device_id: str = None, employee_id: str = None,
+                    start_timestamp: int = None, end_timestamp: int = None, limit: int = 100):
+        """
+        Retrieves facial recognition metrics from DynamoDB with optional filters.
+
+        Args:
+            tenant_id: Tenant identifier
+            device_id: Optional device identifier
+            employee_id: Optional employee filter (uses GSI if provided)
+            start_timestamp: Optional start timestamp filter (milliseconds)
+            end_timestamp: Optional end timestamp filter (milliseconds)
+            limit: Maximum number of records to return
+
+        Returns:
+            List of metrics records
+        """
+        try:
+            items = []
+
+            if employee_id:
+                # Use GSI to query by employee
+                key_condition = boto3.dynamodb.conditions.Key('tenant_id#employee_id').eq(f"{tenant_id}#{employee_id}")
+
+                if start_timestamp and end_timestamp:
+                    key_condition = key_condition & boto3.dynamodb.conditions.Key('timestamp').between(start_timestamp, end_timestamp)
+                elif start_timestamp:
+                    key_condition = key_condition & boto3.dynamodb.conditions.Key('timestamp').gte(start_timestamp)
+                elif end_timestamp:
+                    key_condition = key_condition & boto3.dynamodb.conditions.Key('timestamp').lte(end_timestamp)
+
+                response = self.metrics_table.query(
+                    IndexName='employee-metrics-index',
+                    KeyConditionExpression=key_condition,
+                    Limit=limit
+                )
+                items = response.get('Items', [])
+            elif device_id:
+                # Query by specific device
+                key_condition = boto3.dynamodb.conditions.Key('tenant_id#device_id').eq(f"{tenant_id}#{device_id}")
+                key_condition = key_condition & boto3.dynamodb.conditions.Key('METRICS#metrics_id').begins_with('METRICS#')
+
+                response = self.metrics_table.query(
+                    KeyConditionExpression=key_condition,
+                    Limit=limit,
+                    ScanIndexForward=False  # Get most recent first
+                )
+                items = response.get('Items', [])
+
+                # Apply timestamp filters in memory if specified
+                if start_timestamp or end_timestamp:
+                    filtered_items = []
+                    for item in items:
+                        timestamp = item.get('timestamp', 0)
+                        if start_timestamp and timestamp < start_timestamp:
+                            continue
+                        if end_timestamp and timestamp > end_timestamp:
+                            continue
+                        filtered_items.append(item)
+                    items = filtered_items
+            else:
+                # No device_id or employee_id: scan all metrics for the tenant
+                # Use FilterExpression to filter by tenant_id
+                filter_expression = boto3.dynamodb.conditions.Attr('tenant_id').eq(tenant_id)
+
+                # Add timestamp filters if specified
+                if start_timestamp:
+                    filter_expression = filter_expression & boto3.dynamodb.conditions.Attr('timestamp').gte(start_timestamp)
+                if end_timestamp:
+                    filter_expression = filter_expression & boto3.dynamodb.conditions.Attr('timestamp').lte(end_timestamp)
+
+                response = self.metrics_table.scan(
+                    FilterExpression=filter_expression,
+                    Limit=limit
+                )
+                items = response.get('Items', [])
+
+            return items
+
+        except ClientError as e:
+            logger.error(f"Failed to retrieve metrics from DynamoDB: {e}")
+            raise
+
     def save_activation_code(self, code_data: dict):
         try:
             self.activation_codes_table.put_item(Item=code_data)

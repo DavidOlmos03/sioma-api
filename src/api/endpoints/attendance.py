@@ -6,9 +6,10 @@ from decimal import Decimal
 
 from src.models.attendance import (
     AttendanceSyncRequest, AttendanceSyncResponse, SyncedRecord, ConflictRecord, ErrorRecord, AttendanceRecordIn,
-    MetricsSyncRequest, MetricsSyncResponse, SyncedMetric
+    MetricsSyncRequest, MetricsSyncResponse, SyncedMetric,
+    MetricsListResponse, MetricsRecordOut, MetricsDetails, HeadEulerAngles
 )
-from src.core.security import get_current_device_payload
+from src.core.security import get_current_device_payload, get_current_admin_user
 from src.services.aws_service import AWSService, aws_service
 
 def convert_floats_to_decimal(obj):
@@ -186,3 +187,105 @@ async def sync_metrics(
         synced_count=len(synced_metrics),
         synced_metrics=synced_metrics
     )
+
+@router.get("/attendance/metrics", response_model=MetricsListResponse)
+async def get_metrics(
+    current_user: str = Depends(get_current_admin_user),
+    aws: AWSService = Depends(lambda: aws_service),
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
+    device_id: Optional[str] = None,
+    employee_id: Optional[str] = None,
+    recognition_successful: Optional[bool] = None,
+    rejected_by_user: Optional[bool] = None,
+    start_timestamp: Optional[int] = None,
+    end_timestamp: Optional[int] = None,
+    limit: int = 100
+):
+    """
+    Retrieves facial recognition metrics with optional filters.
+
+    **Autenticación:** Bearer Token (Admin)
+
+    **Headers Requeridos:**
+    - X-Tenant-ID: ID del tenant
+
+    **Query Parameters:**
+    - device_id: Filter by specific device (optional)
+    - employee_id: Filter by specific employee (optional)
+    - recognition_successful: Filter by success status (true/false)
+    - rejected_by_user: Filter by user rejection (true/false)
+    - start_timestamp: Filter metrics from this timestamp (milliseconds)
+    - end_timestamp: Filter metrics until this timestamp (milliseconds)
+    - limit: Maximum number of records to return (default: 100, max: 1000)
+    """
+    # Validate tenant_id header
+    if not x_tenant_id:
+        raise HTTPException(status_code=400, detail="X-Tenant-ID header is required.")
+
+    # Limit the maximum records
+    if limit > 1000:
+        limit = 1000
+
+    try:
+        # Query metrics from DynamoDB
+        raw_metrics = aws.get_metrics(
+            tenant_id=x_tenant_id,
+            device_id=device_id,
+            employee_id=employee_id,
+            start_timestamp=start_timestamp,
+            end_timestamp=end_timestamp,
+            limit=limit
+        )
+
+        # Convert Decimal to float and format response
+        metrics_list = []
+        for item in raw_metrics:
+            # Convert Decimal values to float
+            metrics_obj = item.get('metrics', {})
+
+            # Apply filters if specified
+            if recognition_successful is not None and item.get('recognition_successful') != recognition_successful:
+                continue
+            if rejected_by_user is not None and item.get('rejected_by_user') != rejected_by_user:
+                continue
+
+            metrics_record = MetricsRecordOut(
+                metrics_id=item['metrics_id'],
+                tenant_id=item['tenant_id'],
+                device_id=item['device_id'],
+                local_id=item['local_id'],
+                attendance_record_id=item.get('attendance_record_id'),
+                employee_id=item.get('employee_id'),
+                employee_id_number=item.get('employee_id_number'),
+                timestamp=item['timestamp'],
+                recognition_successful=item['recognition_successful'],
+                rejected_by_user=item['rejected_by_user'],
+                metrics=MetricsDetails(
+                    overall_quality=float(metrics_obj['overall_quality']),
+                    blur_score=float(metrics_obj['blur_score']),
+                    brightness_score=float(metrics_obj['brightness_score']),
+                    confidence=float(metrics_obj['confidence']) if metrics_obj.get('confidence') is not None else None,
+                    euclidean_distance=float(metrics_obj['euclidean_distance']) if metrics_obj.get('euclidean_distance') is not None else None,
+                    embedding_index=metrics_obj.get('embedding_index'),
+                    processing_time_ms=metrics_obj['processing_time_ms'],
+                    face_size_score=float(metrics_obj['face_size_score']),
+                    pose_score=float(metrics_obj['pose_score']),
+                    head_euler_angles=HeadEulerAngles(
+                        x=float(metrics_obj['head_euler_angles']['x']),
+                        y=float(metrics_obj['head_euler_angles']['y']),
+                        z=float(metrics_obj['head_euler_angles']['z'])
+                    ),
+                    used_faiss=metrics_obj['used_faiss'],
+                    threshold_used=float(metrics_obj['threshold_used']) if metrics_obj.get('threshold_used') is not None else None
+                ),
+                synced_at=item['synced_at']
+            )
+            metrics_list.append(metrics_record)
+
+        return MetricsListResponse(
+            count=len(metrics_list),
+            metrics=metrics_list
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve metrics: {str(e)}")

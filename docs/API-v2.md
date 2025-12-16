@@ -1395,6 +1395,214 @@ Atributos:
 
 ---
 
+#### GET `/api/attendance/metrics`
+
+Obtiene métricas de reconocimiento facial con filtros opcionales para análisis y evaluación del modelo.
+
+**Autenticación:** Bearer Token (Admin)
+
+**Headers Requeridos:**
+
+| Header       | Tipo   | Descripción                 |
+|--------------|--------|-----------------------------|
+| X-Tenant-ID  | string | ID del tenant               |
+
+**Parámetros de Query (todos opcionales):**
+
+| Campo                  | Tipo    | Descripción                                              |
+|------------------------|---------|----------------------------------------------------------|
+| device_id              | string  | Filtrar por dispositivo específico                       |
+| employee_id            | string  | Filtrar por empleado específico                          |
+| recognition_successful | boolean | Filtrar por éxito/fallo del reconocimiento (true/false)  |
+| rejected_by_user       | boolean | Filtrar por rechazo del usuario (true/false)             |
+| start_timestamp        | integer | Timestamp de inicio en milisegundos                      |
+| end_timestamp          | integer | Timestamp de fin en milisegundos                         |
+| limit                  | integer | Máximo de registros a retornar (default: 100, máx: 1000) |
+
+**Respuesta Exitosa (200 OK):**
+
+```json
+{
+  "success": true,
+  "count": 2,
+  "metrics": [
+    {
+      "metrics_id": "550e8400-e29b-41d4-a716-446655440000",
+      "tenant_id": "ACME",
+      "device_id": "device-550e8400-e29b-41d4-a716-446655440000",
+      "local_id": 1,
+      "attendance_record_id": "attendance-550e8400-e29b-41d4-a716-446655440000",
+      "employee_id": "worker-123",
+      "employee_id_number": "EMP001",
+      "timestamp": 1706140800000,
+      "recognition_successful": true,
+      "rejected_by_user": false,
+      "metrics": {
+        "overall_quality": 0.95,
+        "blur_score": 0.88,
+        "brightness_score": 0.92,
+        "confidence": 0.94,
+        "euclidean_distance": 0.15,
+        "embedding_index": 3,
+        "processing_time_ms": 245,
+        "face_size_score": 0.85,
+        "pose_score": 0.90,
+        "head_euler_angles": {
+          "x": 2.5,
+          "y": -1.8,
+          "z": 0.3
+        },
+        "used_faiss": true,
+        "threshold_used": 0.88
+      },
+      "synced_at": 1706140900000
+    },
+    {
+      "metrics_id": "660e8400-e29b-41d4-a716-446655440000",
+      "tenant_id": "ACME",
+      "device_id": "device-550e8400-e29b-41d4-a716-446655440000",
+      "local_id": 2,
+      "attendance_record_id": null,
+      "employee_id": null,
+      "employee_id_number": null,
+      "timestamp": 1706141000000,
+      "recognition_successful": false,
+      "rejected_by_user": true,
+      "metrics": {
+        "overall_quality": 0.82,
+        "blur_score": 0.75,
+        "brightness_score": 0.88,
+        "confidence": null,
+        "euclidean_distance": null,
+        "embedding_index": null,
+        "processing_time_ms": 189,
+        "face_size_score": 0.78,
+        "pose_score": 0.85,
+        "head_euler_angles": {
+          "x": -5.2,
+          "y": 3.1,
+          "z": -0.8
+        },
+        "used_faiss": true,
+        "threshold_used": null
+      },
+      "synced_at": 1706140900000
+    }
+  ]
+}
+```
+
+**Campos de la Respuesta:**
+
+| Campo          | Tipo    | Descripción                                        |
+|----------------|---------|----------------------------------------------------|
+| success        | boolean | Siempre true                                       |
+| count          | integer | Cantidad de métricas retornadas                    |
+| metrics        | array   | Lista de métricas con detalles completos           |
+
+**Estructura de cada métrica:**
+
+| Campo                 | Tipo    | Descripción                                          |
+|-----------------------|---------|------------------------------------------------------|
+| metrics_id            | string  | ID único de la métrica                               |
+| tenant_id             | string  | ID del tenant                                        |
+| device_id             | string  | ID del dispositivo                                   |
+| local_id              | integer | ID local del registro en el dispositivo              |
+| attendance_record_id  | string  | ID de asistencia relacionada (null si fue rechazado) |
+| employee_id           | string  | ID del empleado reconocido (null si falló)           |
+| employee_id_number    | string  | Número de empleado (null si falló)                   |
+| timestamp             | integer | Timestamp en milisegundos                            |
+| recognition_successful| boolean | true = exitoso, false = rechazado                    |
+| rejected_by_user      | boolean | true si usuario presionó "No soy yo"                 |
+| metrics               | object  | Objeto con métricas detalladas (ver abajo)           |
+| synced_at             | integer | Timestamp de sincronización en milisegundos          |
+
+**Estructura del objeto metrics:**
+
+| Campo                 | Tipo    | Descripción                                          |
+|-----------------------|---------|------------------------------------------------------|
+| overall_quality       | float   | Score combinado de calidad (0.0-1.0)                 |
+| blur_score            | float   | Nitidez de la imagen (0.0-1.0)                       |
+| brightness_score      | float   | Calidad de iluminación (0.0-1.0)                     |
+| confidence            | float   | Similitud coseno (0.0-1.0), null si no hubo match    |
+| euclidean_distance    | float   | Distancia euclidiana, null si no hubo match          |
+| embedding_index       | integer | Índice del embedding que matcheó, null si no match   |
+| processing_time_ms    | integer | Tiempo total de procesamiento (milisegundos)         |
+| face_size_score       | float   | Tamaño del rostro (0.0-1.0)                          |
+| pose_score            | float   | Calidad de la pose (0.0-1.0)                         |
+| head_euler_angles     | object  | Ángulos de la cabeza (x, y, z)                       |
+| used_faiss            | boolean | true si usó FAISS, false si búsqueda lineal          |
+| threshold_used        | float   | Umbral usado para decisión, null si no hubo match    |
+
+**Respuestas de Error:**
+
+| Código | Descripción                         |
+|--------|-------------------------------------|
+| 400    | Header X-Tenant-ID no proporcionado |
+| 401    | No autenticado                      |
+| 500    | Error al obtener métricas           |
+
+**Ejemplo de Uso:**
+
+```bash
+# Obtener todas las métricas del tenant
+curl -X GET "http://localhost:8000/api/attendance/metrics?limit=100" \
+  -H "Authorization: Bearer {admin_token}" \
+  -H "X-Tenant-ID: ACME"
+
+# Filtrar por dispositivo específico
+curl -X GET "http://localhost:8000/api/attendance/metrics?device_id=device-550e8400&limit=50" \
+  -H "Authorization: Bearer {admin_token}" \
+  -H "X-Tenant-ID: ACME"
+
+# Filtrar por empleado específico
+curl -X GET "http://localhost:8000/api/attendance/metrics?employee_id=worker-123" \
+  -H "Authorization: Bearer {admin_token}" \
+  -H "X-Tenant-ID: ACME"
+
+# Solo reconocimientos fallidos
+curl -X GET "http://localhost:8000/api/attendance/metrics?recognition_successful=false" \
+  -H "Authorization: Bearer {admin_token}" \
+  -H "X-Tenant-ID: ACME"
+
+# Solo rechazos de usuarios
+curl -X GET "http://localhost:8000/api/attendance/metrics?rejected_by_user=true" \
+  -H "Authorization: Bearer {admin_token}" \
+  -H "X-Tenant-ID: ACME"
+
+# Rango de fechas
+curl -X GET "http://localhost:8000/api/attendance/metrics?start_timestamp=1706140800000&end_timestamp=1706227200000" \
+  -H "Authorization: Bearer {admin_token}" \
+  -H "X-Tenant-ID: ACME"
+
+# Combinación de filtros
+curl -X GET "http://localhost:8000/api/attendance/metrics?employee_id=worker-123&recognition_successful=false&limit=50" \
+  -H "Authorization: Bearer {admin_token}" \
+  -H "X-Tenant-ID: ACME"
+```
+
+**Notas:**
+- Requiere autenticación de administrador (no de dispositivo)
+- El header `X-Tenant-ID` es obligatorio
+- Si no se especifica `device_id` ni `employee_id`, retorna todas las métricas del tenant
+- Los filtros `recognition_successful` y `rejected_by_user` se aplican en memoria después de la consulta
+- Los filtros de timestamp se aplican según el método de consulta:
+  - Por empleado: usa GSI con range key en timestamp (más eficiente)
+  - Por dispositivo: filtra en memoria
+  - Sin filtros: filtra en memoria durante el scan
+- El límite máximo es 1000 registros por solicitud
+- Los valores `Decimal` de DynamoDB se convierten automáticamente a `float` en la respuesta
+
+**Casos de Uso:**
+- Dashboard de administración para monitoreo de precisión del modelo
+- Análisis de patrones de reconocimiento por empleado, dispositivo o período de tiempo
+- Identificación de empleados con alta tasa de rechazo
+- Evaluación de condiciones ambientales (iluminación, calidad de imagen)
+- Optimización de umbrales basada en métricas históricas
+- Auditoría de performance del sistema de reconocimiento facial
+
+---
+
 ## Modelos de Datos
 
 ### AdminUser
