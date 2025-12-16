@@ -29,3 +29,18 @@ class DeviceStatusResponse(BaseModel):
     is_active: bool = Field(..., example=True)
     last_sync_at: Optional[int] = Field(None, example=1706140800000)
     pending_records: int = Field(..., example=5)
+
+class Device(BaseModel):
+    device_id: str
+    device_name: str
+    device_model: str
+    device_manufacturer: str
+    android_version: str
+    is_active: bool
+    registered_at: int
+    last_sync_at: Optional[int] = None
+    tenant_id: str
+
+class DeviceListResponse(BaseModel):
+    success: bool = True
+    data: list[Device]

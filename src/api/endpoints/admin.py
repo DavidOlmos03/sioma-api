@@ -25,11 +25,18 @@ async def create_activation_code(
     # TODO: Validate that the admin belongs to the tenant_id.
 
     created_at = int(time.time() * 1000)
+
+    # If expires_at is not provided, set it to 30 days from now
+    if request.expires_at is None:
+        expires_at = created_at + (30 * 24 * 60 * 60 * 1000)  # 30 days in milliseconds
+    else:
+        expires_at = request.expires_at
+
     code_data = {
         "code": request.code,
         "tenant_id": tenant_id,
         "description": request.description,
-        "expires_at": request.expires_at,
+        "expires_at": expires_at,
         "status": "pending",
         "created_at": created_at,
         "used_at": None,

@@ -11,13 +11,13 @@ router = APIRouter()
 @router.post("/workers", response_model=WorkerResponse, status_code=201)
 async def register_worker(
     personal_data_json: str = Form(...),
-    images: List[UploadFile] = File(..., max_uploads=7),
+    images: List[UploadFile] = File(..., max_uploads=20),
     aws: AWSService = Depends(lambda: aws_service)
 ):
     """
     Registers a new worker:
     - **personal_data_json**: A JSON string with worker's personal data.
-    - **images**: A list of 7 face images.
+    - **images**: A list of 7 to 20 face images.
     """
     try:
         personal_data_dict = json.loads(personal_data_json)
@@ -25,8 +25,8 @@ async def register_worker(
     except (json.JSONDecodeError, TypeError) as e:
         raise HTTPException(status_code=400, detail=f"Invalid personal_data format: {e}")
 
-    if len(images) != 7:
-        raise HTTPException(status_code=400, detail="Exactly 7 images are required.")
+    if len(images) < 7 or len(images) > 20:
+        raise HTTPException(status_code=400, detail="Between 7 and 20 images are required.")
 
     worker_id = worker_create.personal_data.id
 

@@ -1,5 +1,12 @@
 from fastapi import APIRouter, status, Depends, HTTPException
-from src.models.device import DeviceRegisterRequest, DeviceRegisterResponse, DeviceRegisterResponseData, DeviceStatusResponse
+from src.models.device import (
+    DeviceRegisterRequest, 
+    DeviceRegisterResponse, 
+    DeviceRegisterResponseData, 
+    DeviceStatusResponse,
+    DeviceListResponse,
+    Device
+)
 from src.services.aws_service import AWSService, aws_service
 from src.core.security import create_device_token, get_current_device_payload
 import time
@@ -97,3 +104,14 @@ async def get_device_status(
         last_sync_at=device.get('last_sync_at'),
         pending_records=pending_records_count
     )
+
+@router.get("/devices", response_model=DeviceListResponse)
+async def get_all_devices(aws: AWSService = Depends(lambda: aws_service)):
+    """
+    Retrieves a list of all registered devices.
+    """
+    try:
+        devices = aws.get_all_devices()
+        return {"success": True, "data": devices}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve devices: {str(e)}")

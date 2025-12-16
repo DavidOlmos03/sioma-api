@@ -148,6 +148,14 @@ class AWSService:
                  raise ValueError("Required DynamoDB index 'tenant_id-registered_at-index' not found.")
             raise
 
+    def get_all_devices(self):
+        try:
+            response = self.devices_table.scan()
+            return response.get("Items", [])
+        except ClientError as e:
+            logger.error(f"Failed to scan devices table: {e}")
+            raise
+
     def upload_images_to_s3(self, worker_id: str, images: List[UploadFile]) -> List[str]:
         image_urls = []
         for i, image in enumerate(images):
