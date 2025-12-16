@@ -32,6 +32,7 @@ class AWSService:
         self.attendance_table = self.dynamodb.Table(settings.DYNAMODB_ATTENDANCE_TABLE)
         self.audit_table = self.dynamodb.Table(settings.DYNAMODB_AUDIT_TABLE)
         self.admin_users_table = self.dynamodb.Table(settings.DYNAMODB_ADMIN_USERS_TABLE)
+        self.metrics_table = self.dynamodb.Table(settings.DYNAMODB_METRICS_TABLE)
 
     def get_activation_code(self, code: str):
         try:
@@ -125,6 +126,26 @@ class AWSService:
                     batch.put_item(Item=record)
         except ClientError as e:
             logger.error(f"Failed to save audit records to DynamoDB: {e}")
+            raise
+
+    def save_metrics_record(self, metrics_data: dict):
+        """
+        Saves facial recognition metrics to DynamoDB.
+
+        Args:
+            metrics_data: Dictionary containing metrics information with structure:
+                - PK: tenant_id#device_id (e.g., "ACME#device-123")
+                - SK: METRICS#metrics_id (e.g., "METRICS#uuid")
+                - tenant_id, device_id, metrics_id, local_id
+                - attendance_record_id, employee_id, employee_id_number
+                - timestamp, recognition_successful, rejected_by_user
+                - metrics: nested object with quality and capture metrics
+                - synced_at
+        """
+        try:
+            self.metrics_table.put_item(Item=metrics_data)
+        except ClientError as e:
+            logger.error(f"Failed to save metrics record to DynamoDB: {e}")
             raise
 
     def save_activation_code(self, code_data: dict):
@@ -375,6 +396,29 @@ class AWSService:
             settings.DYNAMODB_AUDIT_TABLE: {
                 'KeySchema': [{'AttributeName': 'id', 'KeyType': 'HASH'}],
                 'AttributeDefinitions': [{'AttributeName': 'id', 'AttributeType': 'S'}]
+            },
+            settings.DYNAMODB_METRICS_TABLE: {
+                'KeySchema': [
+                    {'AttributeName': 'tenant_id#device_id', 'KeyType': 'HASH'},
+                    {'AttributeName': 'METRICS#metrics_id', 'KeyType': 'RANGE'}
+                ],
+                'AttributeDefinitions': [
+                    {'AttributeName': 'tenant_id#device_id', 'AttributeType': 'S'},
+                    {'AttributeName': 'METRICS#metrics_id', 'AttributeType': 'S'},
+                    {'AttributeName': 'tenant_id#employee_id', 'AttributeType': 'S'},
+                    {'AttributeName': 'timestamp', 'AttributeType': 'N'}
+                ],
+                'GlobalSecondaryIndexes': [
+                    {
+                        'IndexName': 'employee-metrics-index',
+                        'KeySchema': [
+                            {'AttributeName': 'tenant_id#employee_id', 'KeyType': 'HASH'},
+                            {'AttributeName': 'timestamp', 'KeyType': 'RANGE'}
+                        ],
+                        'Projection': {'ProjectionType': 'ALL'},
+                        'ProvisionedThroughput': {'ReadCapacityUnits': 1, 'WriteCapacityUnits': 1}
+                    }
+                ]
             }
         }
 

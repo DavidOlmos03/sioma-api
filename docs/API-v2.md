@@ -13,6 +13,7 @@
   - [Marcas de Tiempo (Timestamps)](#marcas-de-tiempo-timestamps)
   - [Sincronización de Asistencia](#sincronización-de-asistencia)
   - [Sincronización de Auditoría](#sincronización-de-auditoría)
+  - [Sincronización de Métricas](#sincronización-de-métricas)
 - [Modelos de Datos](#modelos-de-datos)
 - [Códigos de Error](#códigos-de-error)
 
@@ -1190,6 +1191,207 @@ Sincroniza registros de auditoría desde dispositivos al servidor.
 - Cuando `attendance_id` es null, se usa el `audit_id` generado para construir la clave primaria
 - El `tenant_id` y `device_id` se extraen del token JWT automáticamente
 - Todos los registros se procesan en lote
+
+---
+
+### Sincronización de Métricas
+
+#### POST `/api/attendance/metrics/sync`
+
+Sincroniza métricas detalladas de reconocimiento facial desde dispositivos al servidor para análisis y evaluación del modelo.
+
+**Autenticación:** Bearer Token (Device)
+
+**Request Body:**
+
+```json
+{
+  "metrics": [
+    {
+      "local_id": 1,
+      "attendance_record_id": "550e8400-e29b-41d4-a716-446655440000",
+      "employee_id": "worker-123",
+      "employee_id_number": "EMP001",
+      "timestamp": 1706140800000,
+      "recognition_successful": true,
+      "rejected_by_user": false,
+      "overall_quality": 0.95,
+      "blur_score": 0.88,
+      "brightness_score": 0.92,
+      "confidence": 0.94,
+      "euclidean_distance": 0.15,
+      "embedding_index": 3,
+      "processing_time_ms": 245,
+      "face_size_score": 0.85,
+      "pose_score": 0.90,
+      "head_euler_angle_x": 2.5,
+      "head_euler_angle_y": -1.8,
+      "head_euler_angle_z": 0.3,
+      "used_faiss": true,
+      "threshold_used": 0.88
+    },
+    {
+      "local_id": 2,
+      "attendance_record_id": null,
+      "employee_id": null,
+      "employee_id_number": null,
+      "timestamp": 1706141000000,
+      "recognition_successful": false,
+      "rejected_by_user": true,
+      "overall_quality": 0.82,
+      "blur_score": 0.75,
+      "brightness_score": 0.88,
+      "confidence": null,
+      "euclidean_distance": null,
+      "embedding_index": null,
+      "processing_time_ms": 189,
+      "face_size_score": 0.78,
+      "pose_score": 0.85,
+      "head_euler_angle_x": -5.2,
+      "head_euler_angle_y": 3.1,
+      "head_euler_angle_z": -0.8,
+      "used_faiss": true,
+      "threshold_used": null
+    }
+  ]
+}
+```
+
+**Campos del Request:**
+
+| Campo                 | Tipo    | Requerido | Descripción                                          |
+|-----------------------|---------|-----------|------------------------------------------------------|
+| metrics               | array   | Sí        | Lista de métricas de reconocimiento                  |
+| local_id              | integer | Sí        | ID local del registro en el dispositivo              |
+| attendance_record_id  | string  | No        | ID de asistencia relacionada (null si fue rechazado) |
+| employee_id           | string  | No        | ID del empleado reconocido (null si falló)           |
+| employee_id_number    | string  | No        | Número de empleado (null si falló)                   |
+| timestamp             | integer | Sí        | Timestamp en milisegundos                            |
+| recognition_successful| boolean | Sí        | true = exitoso, false = rechazado                    |
+| rejected_by_user      | boolean | Sí        | true si usuario presionó "No soy yo"                 |
+| **Métricas de Calidad (Prioridad Alta)** |   |           |                                                      |
+| overall_quality       | float   | Sí        | Score combinado de calidad (0.0-1.0)                 |
+| blur_score            | float   | Sí        | Nitidez de la imagen (0.0-1.0)                       |
+| brightness_score      | float   | Sí        | Calidad de iluminación (0.0-1.0)                     |
+| confidence            | float   | No        | Similitud coseno (0.0-1.0), null si no hubo match    |
+| euclidean_distance    | float   | No        | Distancia euclidiana, null si no hubo match          |
+| embedding_index       | integer | No        | Índice del embedding que matcheó, null si no match   |
+| processing_time_ms    | integer | Sí        | Tiempo total de procesamiento (milisegundos)         |
+| **Métricas de Captura (Prioridad Media)** |  |           |                                                      |
+| face_size_score       | float   | Sí        | Tamaño del rostro (0.0-1.0)                          |
+| pose_score            | float   | Sí        | Calidad de la pose (0.0-1.0)                         |
+| head_euler_angle_x    | float   | Sí        | Pitch: arriba/abajo (-90 a +90)                      |
+| head_euler_angle_y    | float   | Sí        | Yaw: izquierda/derecha (-90 a +90)                   |
+| head_euler_angle_z    | float   | Sí        | Roll: inclinación (-90 a +90)                        |
+| used_faiss            | boolean | Sí        | true si usó FAISS, false si búsqueda lineal          |
+| threshold_used        | float   | No        | Umbral usado para decisión, null si no hubo match    |
+
+**Respuesta Exitosa (200 OK):**
+
+```json
+{
+  "success": true,
+  "synced_count": 2,
+  "synced_metrics": [
+    {
+      "local_id": 1,
+      "server_id": "metrics-550e8400-e29b-41d4-a716-446655440000",
+      "synced_at": 1706140900000
+    },
+    {
+      "local_id": 2,
+      "server_id": "metrics-660e8400-e29b-41d4-a716-446655440000",
+      "synced_at": 1706140900000
+    }
+  ]
+}
+```
+
+**Campos de la Respuesta:**
+
+| Campo          | Tipo    | Descripción                                        |
+|----------------|---------|----------------------------------------------------|
+| success        | boolean | Siempre true                                       |
+| synced_count   | integer | Cantidad de métricas sincronizadas                 |
+| synced_metrics | array   | Lista de métricas sincronizadas con server_id      |
+
+**Respuestas de Error:**
+
+| Código | Descripción       |
+|--------|-------------------|
+| 401    | No autenticado    |
+| 422    | Datos inválidos   |
+
+**Estructura en DynamoDB:**
+
+```
+PK: tenant_id#device_id
+SK: METRICS#{metrics_id}
+
+Atributos:
+- tenant_id: string
+- device_id: string
+- metrics_id: string (UUID)
+- local_id: number
+- attendance_record_id: string | null
+- employee_id: string | null
+- employee_id_number: string | null
+- timestamp: number
+- recognition_successful: boolean
+- rejected_by_user: boolean
+- metrics: {
+    overall_quality: number,
+    blur_score: number,
+    brightness_score: number,
+    confidence: number | null,
+    euclidean_distance: number | null,
+    embedding_index: number | null,
+    processing_time_ms: number,
+    face_size_score: number,
+    pose_score: number,
+    head_euler_angles: {
+      x: number,
+      y: number,
+      z: number
+    },
+    used_faiss: boolean,
+    threshold_used: number | null
+  }
+- synced_at: number
+```
+
+**GSI (Global Secondary Index) Recomendados:**
+
+1. **EmployeeMetricsIndex:**
+   - PK: `tenant_id#employee_id`
+   - SK: `timestamp`
+   - Uso: Consultar métricas por empleado ordenadas por tiempo
+
+2. **RecognitionStatusIndex:**
+   - PK: `tenant_id#recognition_successful`
+   - SK: `timestamp`
+   - Uso: Filtrar por éxito/rechazo de reconocimiento
+
+3. **RejectionIndex:**
+   - PK: `tenant_id#rejected_by_user`
+   - SK: `timestamp`
+   - Uso: Analizar rechazos de usuarios
+
+**Notas:**
+- Las métricas se registran tanto para reconocimientos exitosos como fallidos
+- Cuando `rejected_by_user = true`, indica que el usuario presionó el botón "No soy yo"
+- Cuando `recognition_successful = false`, los campos de match (confidence, euclidean_distance, etc.) son `null`
+- El `tenant_id` y `device_id` se extraen del token JWT automáticamente
+- Todos los registros se procesan en lote
+- Las métricas permiten evaluar el comportamiento del modelo en producción y detectar patrones de error
+
+**Casos de Uso:**
+- Analizar precisión del modelo por empleado, hora del día, condiciones de luz, etc.
+- Detectar empleados con problemas de reconocimiento recurrentes
+- Identificar patrones en rechazos de usuarios
+- Optimizar umbrales de confianza basados en datos reales
+- Evaluar impacto de cambios en el preprocesamiento de imágenes
+- Monitorear tiempos de procesamiento y performance
 
 ---
 

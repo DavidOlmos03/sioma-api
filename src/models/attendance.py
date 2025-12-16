@@ -51,3 +51,42 @@ class AttendanceUpdateRecord(BaseModel):
 class AttendanceUpdatesResponse(BaseModel):
     updates: List[AttendanceUpdateRecord]
     last_sync_timestamp: int
+
+# Metrics models
+class MetricsRecordIn(BaseModel):
+    local_id: int
+    attendance_record_id: Optional[str] = None
+    employee_id: Optional[str] = None
+    employee_id_number: Optional[str] = None
+    timestamp: int
+    recognition_successful: bool
+    rejected_by_user: bool
+    # Quality metrics (High priority)
+    overall_quality: float
+    blur_score: float
+    brightness_score: float
+    confidence: Optional[float] = None
+    euclidean_distance: Optional[float] = None
+    embedding_index: Optional[int] = None
+    processing_time_ms: int
+    # Capture metrics (Medium priority)
+    face_size_score: float
+    pose_score: float
+    head_euler_angle_x: float
+    head_euler_angle_y: float
+    head_euler_angle_z: float
+    used_faiss: bool
+    threshold_used: Optional[float] = None
+
+class MetricsSyncRequest(BaseModel):
+    metrics: List[MetricsRecordIn]
+
+class SyncedMetric(BaseModel):
+    local_id: int
+    server_id: str
+    synced_at: int
+
+class MetricsSyncResponse(BaseModel):
+    success: bool = True
+    synced_count: int
+    synced_metrics: List[SyncedMetric]
