@@ -4,6 +4,8 @@ from fastapi import UploadFile
 from typing import List
 import logging
 import time
+from io import BytesIO
+from PIL import Image
 from src.core.security import get_password_hash
 
 from src.core.config import settings
@@ -260,21 +262,101 @@ class AWSService:
             raise
 
     def upload_images_to_s3(self, worker_id: str, images: List[UploadFile]) -> List[str]:
+        """
+        Uploads images to S3 with automatic EXIF orientation correction.
+
+        This method:
+        1. Reads the image from the upload
+        2. Automatically corrects orientation based on EXIF data
+        3. Optionally compresses the image to reduce file size
+        4. Uploads to S3
+
+        Args:
+            worker_id: Unique identifier for the worker
+            images: List of uploaded image files
+
+        Returns:
+            List of S3 URLs for the uploaded images
+        """
         image_urls = []
         for i, image in enumerate(images):
             file_key = f"{worker_id}/face_{i+1}.jpg"
             try:
+                # Read the image file
+                image_data = image.file.read()
+                img = Image.open(BytesIO(image_data))
+
+                # First, try to apply EXIF orientation correction
+                exif_rotated = False
+                try:
+                    # Get EXIF data
+                    exif = img.getexif()
+
+                    # EXIF orientation tag is 0x0112 (274 in decimal)
+                    orientation = exif.get(0x0112, 1)
+
+                    # Apply rotation based on EXIF orientation
+                    if orientation == 3:
+                        img = img.rotate(180, expand=True)
+                        exif_rotated = True
+                    elif orientation == 6:
+                        img = img.rotate(270, expand=True)
+                        exif_rotated = True
+                    elif orientation == 8:
+                        img = img.rotate(90, expand=True)
+                        exif_rotated = True
+
+                    logger.info(f"EXIF orientation for {file_key}: {orientation}, rotated: {exif_rotated}")
+
+                except (AttributeError, KeyError, IndexError) as e:
+                    # If there's no EXIF data or it's malformed, just continue
+                    logger.info(f"No EXIF orientation data for {file_key}: {e}")
+
+                # ALWAYS rotate 90° to the left (90° counterclockwise) for camera images
+                # This is needed because mobile camera images come rotated
+                logger.info(f"Applying fixed 90° left rotation to {file_key}")
+                img = img.rotate(90, expand=True)
+
+                # Convert to RGB and remove EXIF data
+                # This prevents double-rotation if the image is processed again
+                if img.mode in ('RGBA', 'LA', 'P'):
+                    img = img.convert('RGB')
+                else:
+                    img = img.convert('RGB')
+
+                # Save to BytesIO buffer with optimization
+                img_buffer = BytesIO()
+                img.save(
+                    img_buffer,
+                    format='JPEG',
+                    quality=90,  # Good quality with compression
+                    optimize=True  # Optimize file size
+                )
+                img_buffer.seek(0)
+
+                # Upload the processed image to S3
                 self.s3_client.upload_fileobj(
-                    image.file,
+                    img_buffer,
                     settings.S3_BUCKET_NAME,
                     file_key,
-                    ExtraArgs={'ContentType': image.content_type}
+                    ExtraArgs={
+                        'ContentType': 'image/jpeg',
+                        'CacheControl': 'max-age=31536000'  # Cache for 1 year
+                    }
                 )
+
                 image_url = f"https://{settings.S3_BUCKET_NAME}.s3.amazonaws.com/{file_key}"
                 image_urls.append(image_url)
+
+                logger.info(f"Successfully uploaded and processed {file_key}")
+
             except ClientError as e:
                 logger.error(f"Failed to upload {file_key} to S3: {e}")
                 raise
+            except Exception as e:
+                logger.error(f"Failed to process image {file_key}: {e}")
+                raise
+
         return image_urls
 
     def save_worker_data(self, worker_data: dict):
