@@ -132,7 +132,7 @@ class AWSService:
 
     def save_metrics_record(self, metrics_data: dict):
         """
-        Saves facial recognition metrics to DynamoDB.
+        Saves facial recognition metrics to DynamoDB with retry logic.
 
         Args:
             metrics_data: Dictionary containing metrics information with structure:
@@ -144,11 +144,53 @@ class AWSService:
                 - metrics: nested object with quality and capture metrics
                 - synced_at
         """
+        max_retries = 3
+        retry_delay = 0.1  # Start with 100ms
+
+        for attempt in range(max_retries):
+            try:
+                self.metrics_table.put_item(Item=metrics_data)
+                return  # Success
+            except ClientError as e:
+                error_code = e.response['Error']['Code']
+
+                # Handle throttling with exponential backoff
+                if error_code == 'ProvisionedThroughputExceededException' and attempt < max_retries - 1:
+                    sleep_time = retry_delay * (2 ** attempt)
+                    logger.warning(f"Throttled writing metrics. Retrying in {sleep_time}s (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(sleep_time)
+                    continue
+                else:
+                    logger.error(f"Failed to save metrics record to DynamoDB: {e}")
+                    raise
+
+    def save_metrics_batch(self, metrics_list: List[dict]):
+        """
+        Saves multiple metrics records to DynamoDB using batch_writer for efficiency.
+
+        Args:
+            metrics_list: List of metrics data dictionaries
+
+        Returns:
+            tuple: (successful_count, failed_metrics)
+        """
+        failed_metrics = []
+        successful_count = 0
+
         try:
-            self.metrics_table.put_item(Item=metrics_data)
+            with self.metrics_table.batch_writer() as batch:
+                for metrics_data in metrics_list:
+                    try:
+                        batch.put_item(Item=metrics_data)
+                        successful_count += 1
+                    except Exception as e:
+                        logger.error(f"Failed to batch write metric: {e}")
+                        failed_metrics.append(metrics_data)
         except ClientError as e:
-            logger.error(f"Failed to save metrics record to DynamoDB: {e}")
+            logger.error(f"Batch writer failed: {e}")
             raise
+
+        return successful_count, failed_metrics
 
     def get_metrics(self, tenant_id: str, device_id: str = None, employee_id: str = None,
                     start_timestamp: int = None, end_timestamp: int = None, limit: int = 100):
@@ -580,7 +622,7 @@ class AWSService:
                             {'AttributeName': 'timestamp', 'KeyType': 'RANGE'}
                         ],
                         'Projection': {'ProjectionType': 'ALL'},
-                        'ProvisionedThroughput': {'ReadCapacityUnits': 1, 'WriteCapacityUnits': 1}
+                        'ProvisionedThroughput': {'ReadCapacityUnits': 5, 'WriteCapacityUnits': 10}
                     }
                 ]
             }
@@ -588,11 +630,17 @@ class AWSService:
 
         for table_name, schema in tables.items():
             try:
+                # Set higher throughput for metrics table to handle bursts
+                if table_name == settings.DYNAMODB_METRICS_TABLE:
+                    throughput = {'ReadCapacityUnits': 5, 'WriteCapacityUnits': 10}
+                else:
+                    throughput = {'ReadCapacityUnits': 1, 'WriteCapacityUnits': 1}
+
                 create_table_args = {
                     'TableName': table_name,
                     'KeySchema': schema['KeySchema'],
                     'AttributeDefinitions': schema['AttributeDefinitions'],
-                    'ProvisionedThroughput': {'ReadCapacityUnits': 1, 'WriteCapacityUnits': 1}
+                    'ProvisionedThroughput': throughput
                 }
                 if schema.get('GlobalSecondaryIndexes'):
                     create_table_args['GlobalSecondaryIndexes'] = schema['GlobalSecondaryIndexes']

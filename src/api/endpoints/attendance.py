@@ -114,11 +114,18 @@ async def sync_metrics(
 
     This endpoint stores detailed metrics about each recognition attempt (successful or failed),
     including quality scores, pose angles, confidence levels, and processing times.
+
+    Uses batch processing for efficiency and handles DynamoDB throttling.
     """
+    import logging
+    logger = logging.getLogger(__name__)
+
     jwt_tenant_id = payload.get("tenant_id")
     jwt_device_id = payload.get("device_id")
 
-    synced_metrics: List[SyncedMetric] = []
+    # Prepare all metrics data first
+    metrics_to_save = []
+    metrics_mapping = {}  # Map metrics_id to local_id for response
 
     for metric in sync_request.metrics:
         try:
@@ -168,20 +175,58 @@ async def sync_metrics(
             # Convert all float values to Decimal for DynamoDB
             metrics_data = convert_floats_to_decimal(metrics_data)
 
-            # Save to DynamoDB
-            aws.save_metrics_record(metrics_data)
-
-            synced_metrics.append(SyncedMetric(
-                local_id=metric.local_id,
-                server_id=f"metrics-{metrics_id}",
-                synced_at=synced_at
-            ))
+            metrics_to_save.append(metrics_data)
+            metrics_mapping[metrics_id] = {
+                'local_id': metric.local_id,
+                'synced_at': synced_at
+            }
 
         except Exception as e:
-            # According to spec, errors should not be returned in response
-            # Just log and continue
-            print(f"Error syncing metric {metric.local_id}: {str(e)}")
+            logger.error(f"Error preparing metric {metric.local_id}: {str(e)}", exc_info=True)
             continue
+
+    # Batch save to DynamoDB
+    synced_metrics: List[SyncedMetric] = []
+
+    if metrics_to_save:
+        try:
+            successful_count, failed_metrics = aws.save_metrics_batch(metrics_to_save)
+
+            logger.info(f"Batch sync: {successful_count} successful, {len(failed_metrics)} failed out of {len(metrics_to_save)}")
+
+            # Build response for successful metrics
+            for metrics_data in metrics_to_save:
+                if metrics_data not in failed_metrics:
+                    metrics_id = metrics_data['metrics_id']
+                    mapping = metrics_mapping[metrics_id]
+
+                    synced_metrics.append(SyncedMetric(
+                        local_id=mapping['local_id'],
+                        server_id=f"metrics-{metrics_id}",
+                        synced_at=mapping['synced_at']
+                    ))
+
+        except Exception as e:
+            logger.error(f"Batch save failed: {str(e)}", exc_info=True)
+            # Fall back to individual saves if batch fails
+            logger.warning("Falling back to individual saves")
+
+            for metrics_data in metrics_to_save:
+                try:
+                    aws.save_metrics_record(metrics_data)
+
+                    metrics_id = metrics_data['metrics_id']
+                    mapping = metrics_mapping[metrics_id]
+
+                    synced_metrics.append(SyncedMetric(
+                        local_id=mapping['local_id'],
+                        server_id=f"metrics-{metrics_id}",
+                        synced_at=mapping['synced_at']
+                    ))
+
+                except Exception as e2:
+                    logger.error(f"Individual save failed for metric local_id {metrics_data['local_id']}: {str(e2)}")
+                    continue
 
     return MetricsSyncResponse(
         synced_count=len(synced_metrics),
